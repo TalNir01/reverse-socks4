@@ -385,18 +385,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "relay"
-version = "0.1.0"
-dependencies = [
- "clap",
- "rand",
- "tagger",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "rustc-demangle"
 version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -449,18 +437,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "socks4-server"
-version = "0.1.0"
-dependencies = [
- "clap",
- "rand",
- "tagger",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -468,9 +444,9 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "syn"
-version = "2.0.104"
+version = "2.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17b6f705963418cdb9927482fa304bc562ece2fdd4f616084c50b7023b435a40"
+checksum = "e4307e30089d6fd6aff212f2da3a1f9e32f3223b1f010fb09b7c95f90f3ca1e8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -478,12 +454,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "tagger"
+name = "test-relay"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "rand",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

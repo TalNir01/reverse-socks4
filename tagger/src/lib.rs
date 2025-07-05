@@ -2,7 +2,6 @@
 use rand::Rng;
 use std::fmt::Debug;
 use tokio::io::AsyncReadExt;
-use tracing::debug;
 
 // Define a type alias for ClientId
 pub type ClientId = u32;
@@ -101,10 +100,6 @@ impl TaggedData {
                 "Failed to read data",
             ));
         }
-        debug!(
-            "Read TaggedData from socket: client_tag={}, data_len={}",
-            client_tag, data_len
-        );
         Ok(TaggedData { client_tag, data })
     }
 }

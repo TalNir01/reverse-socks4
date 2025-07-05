@@ -93,9 +93,9 @@ async fn handle_client_connection_to_target(
     let first_packet = match client_receiver.recv().await {
         Some(data) => {
             info!(
-                "Reading first packet from client {}: {:#?}",
+                "Reading first packet from client {}: {} bytes. Expecting SOCKS4 request",
                 client_id,
-                String::from_utf8_lossy(&data)
+                data.len()
             );
             data
         }
@@ -107,11 +107,7 @@ async fn handle_client_connection_to_target(
             return;
         }
     };
-    error!(
-        "Received first packet from client {}: {:#?}",
-        client_id,
-        String::from_utf8_lossy(&first_packet)
-    );
+
     // 2. Parse the SOCKS4 request
     let socks_request: Socks4Request = match Socks4Request::from_bytes(&first_packet) {
         Ok(req) => req,
@@ -179,7 +175,7 @@ async fn handle_client_connection_to_target(
     let payload = socks_request.remaining_data.clone();
     if !payload.is_empty() {
         debug!(
-            "Forwarding initial payload to target: {:?}",
+            "Forwarding initial payload (leftover from socks-handshake) to target: {:?}",
             String::from_utf8_lossy(&payload)
         );
         if let Err(e) = target_writer.write_all(&payload).await {
@@ -251,18 +247,15 @@ async fn read_from_receiver_write_to_target(
         target_writer.peer_addr().unwrap()
     );
     while let Some(data) = client_receiver.recv().await {
-        error!(
-            "Received data from client: {:?}",
-            String::from_utf8_lossy(&data)
-        );
+        
         // Write the data to the target writer
         if target_writer.write_all(&data).await.is_err() {
             error!("Failed to write data to target socket");
             break; // Exit the loop on error
         } else {
             debug!(
-                "Data {:#?} written to target socket {:#?} successfully",
-                String::from_utf8_lossy(&data),
+                "Data of {} bytes, was written to target socket {:#?} successfully",
+                data.len(),
                 target_writer.peer_addr().unwrap()
             );
         }
@@ -363,8 +356,8 @@ async fn from_targets_to_relay(
             break; // Exit the loop on error
         } else {
             debug!(
-                "Data {:#?} written to relay server {:#?} successfully",
-                String::from_utf8_lossy(data.as_slice()),
+                "Data {} bytes, was written to relay server {:#?} successfully",
+                data.len(),
                 relay_writer.peer_addr().unwrap()
             );
         }

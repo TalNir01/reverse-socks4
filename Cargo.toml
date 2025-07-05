@@ -1,5 +1,14 @@
 [workspace]
+resolver = "3"
 members = [
     "relay",
     "socks4-server",
-    "protocol"]
+    "tagger"]
+
+
+[profile.release]
+opt-level = "z"         # or "3" for max speed, "z" for size
+lto = true              # Enable Link Time Optimization
+codegen-units = 1       # Better optimization, slower build
+strip = true            # Strip symbols (Rust 1.60+)
+panic = "abort"         # Smaller binary, no unwinding

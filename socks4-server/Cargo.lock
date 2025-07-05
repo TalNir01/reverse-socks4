@@ -385,12 +385,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "relay"
+name = "relay-client"
 version = "0.1.0"
 dependencies = [
  "clap",
  "rand",
- "tagger",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -449,18 +448,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "socks4-server"
-version = "0.1.0"
-dependencies = [
- "clap",
- "rand",
- "tagger",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -475,15 +462,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "tagger"
-version = "0.1.0"
-dependencies = [
- "rand",
- "tokio",
- "tracing",
 ]
 
 [[package]]

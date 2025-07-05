@@ -41,7 +41,7 @@ async fn main() -> std::io::Result<()> {
     let listen_for_socks_agent = TcpListener::bind(format!("{}", args.for_socks_agent)).await?;
 
     let (socks_agent_stream, _) = listen_for_socks_agent.accept().await?; // Accept `Rsocks-Agent` Connection
-    info!(
+    debug!(
         "Reverse-Socks Agent Connected From {} To {}",
         socks_agent_stream.peer_addr().unwrap(), // Propagate error if peer_addr fails,
         socks_agent_stream.local_addr().unwrap()  // Propagate error if local_addr fails
@@ -61,7 +61,7 @@ async fn main() -> std::io::Result<()> {
 
     // Listens for socks clients (socks-clients)
     let listen_to_clients = TcpListener::bind(format!("{}", args.for_client)).await?;
-    info!(
+    debug!(
         "Listening for clients (socks4 clients) on {}",
         listen_to_clients.local_addr().unwrap() // Panic if local_addr fails
     );
@@ -115,7 +115,6 @@ async fn main() -> std::io::Result<()> {
         {
             let mut maps = newclient.lock().unwrap();
             maps.insert(client_id, transmitter_to_client); // Set maps[client_id] = transmitter_to_client;
-            debug!("Set maps[{}] = transmitter_to_client", client_id);
         } // Lock automatically released here.
 
         // Read data (raw bytes) from the client socket and send it to rsocks transmitter (MPSC Channel)
@@ -179,12 +178,12 @@ async fn write_back_to_clients(
                 }
                 debug!(
                     "Wrote {} bytes to client socket `{}`",
-                    String::from_utf8_lossy(&data),
+                    data.len(),
                     write_to_client.peer_addr().unwrap()
                 );
             }
             None => {
-                info!(
+                warn!(
                     "Receiver closed, stopping write task: Client Disconnected {}",
                     write_to_client.peer_addr().unwrap()
                 );
@@ -285,8 +284,8 @@ async fn write_to_socks_agent(
                     break;
                 }
                 info!(
-                    "Wrote {:#?} bytes to socket {}",
-                    String::from_utf8_lossy(&data),
+                    "write_to_socks_agent: Wrote {} bytes to socket {}",
+                    data.len(),
                     socks_agent_writer.peer_addr().unwrap()
                 );
             }

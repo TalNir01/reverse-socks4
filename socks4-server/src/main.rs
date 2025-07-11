@@ -23,7 +23,7 @@ struct Args {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG) // Set the maximum log level to DEBUG
+        .with_max_level(Level::INFO) // Set the maximum log level to INFO
         .with_thread_ids(true) // Include thread IDs in logs
         .with_thread_names(true) // Include thread names in logs
         .init(); // Initialize the tracing subscriber
@@ -247,7 +247,6 @@ async fn read_from_receiver_write_to_target(
         target_writer.peer_addr().unwrap()
     );
     while let Some(data) = client_receiver.recv().await {
-        
         // Write the data to the target writer
         if target_writer.write_all(&data).await.is_err() {
             error!("Failed to write data to target socket");

@@ -10,7 +10,6 @@ use clap::Parser;
 // use tagged_data::{ClientId, TaggedData, generate_client_id};
 use tagger::{ClientId, TaggedData, generate_client_id};
 
-
 #[derive(Parser, Debug)]
 #[command(name = "tcp-relay", version, about)]
 struct Args {
@@ -27,7 +26,7 @@ struct Args {
 async fn main() -> std::io::Result<()> {
     // Initialize tracing subscriber for logging
     tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG) // Set the maximum log level to DEBUG
+        .with_max_level(Level::INFO) // Set the maximum log level to INFO
         .with_thread_ids(true) // Include thread IDs in logs
         .with_thread_names(true) // Include thread names in logs
         .init(); // Initialize the tracing subscriber
@@ -107,7 +106,11 @@ async fn main() -> std::io::Result<()> {
         // Create new MPSC channels for this client. Allow the rsocks coroutine's to send data to this client.
         let (transmitter_to_client, received_from_rsocks) =
             tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
-        debug!("Created new MPSC channel for client ID: {}", client_id);
+        debug!(
+            "Created new MPSC channel for client ID {} (Source: {})",
+            client_id,
+            client_reader.peer_addr().unwrap()
+        );
 
         // Clone `maps_to_client_transmitter` to a another instance. So we can use this in code block.
         let newclient = maps_to_client_transmitter.clone();
@@ -135,11 +138,6 @@ async fn main() -> std::io::Result<()> {
             client_id, new_connection
         );
     }
-
-    // TODO: Test if something here is needed
-    // Keep main alive
-    // tokio::signal::ctrl_c().await?;
-    // Ok(())
 }
 
 /// Write data to the socks client (socket) from data received in the MPSC channel of the dedicated client

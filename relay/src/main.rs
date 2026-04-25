@@ -1,7 +1,7 @@
 //! Simple TCP Multiplexer relay for `socks-agent` and `socks-clients`
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tracing::{Level, debug, error, info, warn};
 use tracing_subscriber;
@@ -9,6 +9,8 @@ use tracing_subscriber;
 use clap::Parser;
 // use tagged_data::{ClientId, TaggedData, generate_client_id};
 use tagger::{ClientId, TaggedData, generate_client_id};
+
+mod tls;
 
 #[derive(Parser, Debug)]
 #[command(name = "tcp-relay", version, about)]
@@ -20,7 +22,19 @@ struct Args {
     /// Target address to listen for reverse-socks agent to back-connect to (default: 0.0.0.0:8080)
     #[arg(short = 's', long = "for_socks_agent", default_value = "0.0.0.0:8080")]
     for_socks_agent: String,
+
+    /// PEM-encoded certificate chain for TLS on the agent listener.
+    /// Requires --tls-key. When omitted, the agent listener uses plain TCP.
+    #[arg(long = "tls-cert", requires = "tls_key")]
+    tls_cert: Option<String>,
+
+    /// PEM-encoded private key for TLS on the agent listener.
+    #[arg(long = "tls-key", requires = "tls_cert")]
+    tls_key: Option<String>,
 }
+
+type AgentReader = Box<dyn AsyncRead + Unpin + Send + 'static>;
+type AgentWriter = Box<dyn AsyncWrite + Unpin + Send + 'static>;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -31,11 +45,22 @@ async fn main() -> std::io::Result<()> {
         .with_thread_names(true) // Include thread names in logs
         .init(); // Initialize the tracing subscriber
     let args = Args::parse(); // Parse command line arguments
+
+    // Optional TLS acceptor for the agent listener. Built once and reused.
+    let tls_acceptor = match (&args.tls_cert, &args.tls_key) {
+        (Some(cert), Some(key)) => {
+            info!("TLS enabled on agent listener (cert={cert})");
+            Some(tls::build_acceptor(cert, key)?)
+        }
+        _ => None,
+    };
+
     // Listen for the 'socks-agent' connection
     info!("Starting Reverse-Socks TCP Multiplexer Relay...");
     debug!(
-        "Listening for reverse-socks agent on {}",
-        args.for_socks_agent
+        "Listening for reverse-socks agent on {} ({})",
+        args.for_socks_agent,
+        if tls_acceptor.is_some() { "TLS" } else { "plain TCP" }
     );
     let listen_for_socks_agent = TcpListener::bind(format!("{}", args.for_socks_agent)).await?;
 
@@ -46,8 +71,22 @@ async fn main() -> std::io::Result<()> {
         socks_agent_stream.local_addr().unwrap()  // Propagate error if local_addr fails
     );
 
-    // Separate `socket` into read and write halves.
-    let (socks_agent_reader, socks_agent_writer) = socks_agent_stream.into_split();
+    // Separate `socket` into read and write halves. With TLS we have to use
+    // `tokio::io::split` because `TlsStream` is not directly splittable into
+    // OwnedReadHalf/OwnedWriteHalf.
+    let (socks_agent_reader, socks_agent_writer): (AgentReader, AgentWriter) =
+        if let Some(acceptor) = tls_acceptor {
+            let tls_stream = acceptor.accept(socks_agent_stream).await.map_err(|e| {
+                error!("TLS handshake with agent failed: {e}");
+                e
+            })?;
+            info!("TLS handshake with agent complete");
+            let (r, w) = tokio::io::split(tls_stream);
+            (Box::new(r), Box::new(w))
+        } else {
+            let (r, w) = socks_agent_stream.into_split();
+            (Box::new(r), Box::new(w))
+        };
 
     // Initiate new MPSC channels for all the "clients" coroutines to communicate (Send data) with socks-agent.
     let (transmitter_to_socks_agent, received_to_socks_agent) =
@@ -209,7 +248,7 @@ async fn write_back_to_clients(
 /// It reads tagged data from the rsocks socket, extracts the client tag, and sends the data to the corresponding client transmitter.
 /// If the rsocks socket is closed or an error occurs, it will print an error message and exit the loop.
 async fn demux_from_socks_agent_to_clients(
-    mut socks_agent_reader: tokio::net::tcp::OwnedReadHalf, // Read half of the rsocks socket)
+    mut socks_agent_reader: AgentReader, // Read half of the agent connection (plain TCP or TLS)
     maps_to_client_transmitter: Arc<
         Mutex<HashMap<ClientId, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
     >, // Map of client IDs to transmitters
@@ -266,7 +305,7 @@ async fn demux_from_socks_agent_to_clients(
 ///     write_to_socks_agent(writer, rsocks_receiver).await;
 /// ```
 async fn write_to_socks_agent(
-    mut socks_agent_writer: tokio::net::tcp::OwnedWriteHalf, // Write half of the socket
+    mut socks_agent_writer: AgentWriter, // Write half of the agent connection (plain TCP or TLS)
     mut rsocks_receiver: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>, // Receiver to get data to write
 ) {
     // This is a separate task to handle the writing to the socket
@@ -274,18 +313,11 @@ async fn write_to_socks_agent(
         // Read from 'rsocks_receiver' MPSC channel
         match rsocks_receiver.recv().await {
             Some(data) => {
-                if socks_agent_writer.write_all(&data).await.is_err() {
-                    error!(
-                        "Failed to write to socket {}",
-                        socks_agent_writer.peer_addr().unwrap()
-                    );
+                if let Err(e) = socks_agent_writer.write_all(&data).await {
+                    error!("Failed to write to socks-agent: {e}");
                     break;
                 }
-                info!(
-                    "write_to_socks_agent: Wrote {} bytes to socket {}",
-                    data.len(),
-                    socks_agent_writer.peer_addr().unwrap()
-                );
+                info!("write_to_socks_agent: Wrote {} bytes", data.len());
             }
             None => {
                 warn!("Receiver closed, stopping write task");

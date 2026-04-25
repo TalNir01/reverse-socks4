@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::{Level, debug, error, info};
 use tracing_subscriber::{self};
@@ -8,8 +8,12 @@ use tracing_subscriber::{self};
 // use tagged_data::{ClientId, TaggedData};
 use tagger::{ClientId, TaggedData};
 mod socks_specification; // Import the socks_constants module
+mod tls;
 use clap::Parser;
 use socks_specification::Socks4Request; // Import SOCKS4_VERSION from socks_constants
+
+type RelayReader = Box<dyn AsyncRead + Unpin + Send + 'static>;
+type RelayWriter = Box<dyn AsyncWrite + Unpin + Send + 'static>;
 
 /// Your application description
 #[derive(Parser, Debug)]
@@ -18,6 +22,25 @@ struct Args {
     /// Address to listen on (default: 127.0.0.1:8080)
     #[arg(short, long, default_value = "127.0.0.1:8080")]
     relay_server_addr: String,
+
+    /// Connect to the relay over TLS instead of plain TCP.
+    #[arg(long = "tls")]
+    tls: bool,
+
+    /// Override the hostname used for SNI / certificate verification.
+    /// Defaults to the host portion of `--relay-server-addr`.
+    #[arg(long = "tls-domain", requires = "tls")]
+    tls_domain: Option<String>,
+
+    /// PEM file containing additional trust anchors (e.g. self-signed CA).
+    /// Stacks on top of the bundled webpki Mozilla roots.
+    #[arg(long = "tls-ca", requires = "tls")]
+    tls_ca: Option<String>,
+
+    /// Skip server certificate verification entirely.
+    /// DANGEROUS — only use for testing against self-signed certs.
+    #[arg(long = "tls-insecure", requires = "tls", conflicts_with = "tls_ca")]
+    tls_insecure: bool,
 }
 
 #[tokio::main]
@@ -32,11 +55,33 @@ async fn main() {
         .await
         .unwrap();
     info!(
-        "Connected to relay server at {}",
-        connect_to_relay.peer_addr().unwrap()
+        "Connected to relay server at {} ({})",
+        connect_to_relay.peer_addr().unwrap(),
+        if args.tls { "TLS" } else { "plain TCP" }
     );
-    // Split the TcpStream into read and write halves
-    let (relay_reader, relay_writer) = connect_to_relay.into_split();
+
+    // Optionally upgrade to TLS, then split into halves. Boxing as trait
+    // objects lets the per-connection helpers take a single uniform type
+    // regardless of the transport.
+    let (relay_reader, relay_writer): (RelayReader, RelayWriter) = if args.tls {
+        let domain = args
+            .tls_domain
+            .clone()
+            .unwrap_or_else(|| host_from_addr(&args.relay_server_addr).to_string());
+        let connector = tls::build_connector(args.tls_ca.as_deref(), args.tls_insecure)
+            .expect("failed to build TLS connector");
+        let server_name = tls::server_name(&domain).expect("invalid TLS domain");
+        let tls_stream = connector
+            .connect(server_name, connect_to_relay)
+            .await
+            .expect("TLS handshake with relay failed");
+        info!("TLS handshake with relay complete (sni={domain})");
+        let (r, w) = tokio::io::split(tls_stream);
+        (Box::new(r), Box::new(w))
+    } else {
+        let (r, w) = connect_to_relay.into_split();
+        (Box::new(r), Box::new(w))
+    };
 
     // Generate MPSC
     let (transmit_to_relay, received_from_targets_send_to_relay) =
@@ -262,7 +307,7 @@ async fn read_from_receiver_write_to_target(
 }
 
 async fn read_from_relay_write_to_clients_mpsc(
-    mut relay_reader: tokio::net::tcp::OwnedReadHalf, // Read half of the rsocks socket)
+    mut relay_reader: RelayReader, // Read half of the relay connection (plain TCP or TLS)
     send_result_to_relay: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
     maps_to_client_transmitter: Arc<
         Mutex<HashMap<ClientId, tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
@@ -338,7 +383,7 @@ async fn read_from_relay_write_to_clients_mpsc(
 }
 
 async fn from_targets_to_relay(
-    mut relay_writer: tokio::net::tcp::OwnedWriteHalf,
+    mut relay_writer: RelayWriter, // Write half of the relay connection (plain TCP or TLS)
     mut received_from_all_targets: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
 ) {
     while let Some(data) = received_from_all_targets.recv().await {
@@ -346,19 +391,23 @@ async fn from_targets_to_relay(
             "Received data from targets: {:#?}",
             String::from_utf8_lossy(&data)
         );
-        // Write the data to the target writer
-        if relay_writer.write_all(&data).await.is_err() {
-            error!(
-                "Failed to write data back to relay: Data {:#?}",
-                relay_writer.peer_addr().unwrap()
-            );
+        // Write the data to the relay writer
+        if let Err(e) = relay_writer.write_all(&data).await {
+            error!("Failed to write data back to relay: {e}");
             break; // Exit the loop on error
         } else {
-            debug!(
-                "Data {} bytes, was written to relay server {:#?} successfully",
-                data.len(),
-                relay_writer.peer_addr().unwrap()
-            );
+            debug!("Data {} bytes was written to relay successfully", data.len());
         }
     }
+}
+
+/// Strip the `:port` suffix from an `addr` string. Used as the default SNI
+/// when `--tls-domain` is not provided. Handles bracketed IPv6 literals.
+fn host_from_addr(addr: &str) -> &str {
+    if let Some(rest) = addr.strip_prefix('[')
+        && let Some(end) = rest.find(']')
+    {
+        return &rest[..end];
+    }
+    addr.rsplit_once(':').map(|(h, _)| h).unwrap_or(addr)
 }

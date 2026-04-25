@@ -67,6 +67,40 @@ strip target/x86_64-unknown-linux-musl/release/relay
 strip target/x86_64-unknown-linux-musl/release/socks4-server
 ```
 
+## TLS on the agent ↔ relay link (optional)
+
+The agent-to-relay connection can be wrapped in TLS. The SOCKS4 client side stays plain TCP.
+
+Generate a self-signed cert (test only):
+
+```bash
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 \
+  -nodes -subj "/CN=relay.example" \
+  -addext "subjectAltName=DNS:relay.example,IP:127.0.0.1"
+```
+
+Run the relay with TLS on the agent listener:
+
+```bash
+./target/release/relay \
+  --tls-cert cert.pem --tls-key key.pem \
+  -c 0.0.0.0:1080 -s 0.0.0.0:8443
+```
+
+Run the agent over TLS (lab / self-signed):
+
+```bash
+./target/release/socks4-server -r relay.example:8443 --tls --tls-insecure
+```
+
+Or with proper CA pinning:
+
+```bash
+./target/release/socks4-server -r relay.example:8443 --tls --tls-ca ca.pem
+```
+
+Both `--tls-cert` and `--tls-key` must be supplied together; if either is absent the relay falls back to plain TCP. The agent's `--tls-domain`, `--tls-ca`, and `--tls-insecure` only apply when `--tls` is set; `--tls-insecure` and `--tls-ca` are mutually exclusive.
+
 ## Example Network Diagram
 
 ```bash

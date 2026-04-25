@@ -1,0 +1,13 @@
+/Users/talnir01/Projects/reverse-socks4/README.md
+/Users/talnir01/Projects/reverse-socks4/Cargo.toml
+/Users/talnir01/Projects/reverse-socks4/relay/Cargo.toml
+/Users/talnir01/Projects/reverse-socks4/socks4-server/Cargo.toml
+/Users/talnir01/Projects/reverse-socks4/tagger/Cargo.toml
+/Users/talnir01/Projects/reverse-socks4/relay/README.md
+/Users/talnir01/Projects/reverse-socks4/socks4-server/README.md
+/Users/talnir01/Projects/reverse-socks4/tagger/README.md
+/Users/talnir01/Projects/reverse-socks4/tagger/src/lib.rs
+/Users/talnir01/Projects/reverse-socks4/relay/src/main.rs
+/Users/talnir01/Projects/reverse-socks4/socks4-server/src/main.rs
+/Users/talnir01/Projects/reverse-socks4/socks4-server/src/socks_specification.rs
+/Users/talnir01/Projects/reverse-socks4/.gitignore

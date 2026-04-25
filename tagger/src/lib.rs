@@ -54,25 +54,22 @@ impl TaggedData {
         bytes
     }
 
-    /// Read (Build) TaggedData from a read socket.
-    /// This function reads the client tag, data length, and data from the socket.
+    /// Read (Build) TaggedData from any async byte stream.
+    /// This function reads the client tag, data length, and data from `reader`.
     /// It expects the data to be in the format:
     /// <ClientId: 4 bytes><Data Length: 4 bytes><Data: variable length>
     /// # Arguments
-    /// * `reader` - The read half of the socket to read data from
+    /// * `reader` - Any `AsyncRead + Unpin` source (plain TCP half, TLS half, etc.)
     /// # Returns
     /// * `TaggedData` - The TaggedData instance containing the client tag and data
     /// # Errors
-    /// * Returns an error if reading from the socket fails or if the data format is incorrect
-    /// # Example
-    /// ```rust
-    /// let tagged_data = TaggedData::from_read_socket(reader).await?;
-    /// ```
+    /// * Returns an error if reading from the source fails or if the data format is incorrect
     /// # Note
     /// This function is asynchronous and should be awaited.
-    pub async fn from_read_socket(
-        reader: &mut tokio::net::tcp::OwnedReadHalf,
-    ) -> Result<Self, std::io::Error> {
+    pub async fn from_read_socket<R>(reader: &mut R) -> Result<Self, std::io::Error>
+    where
+        R: tokio::io::AsyncRead + Unpin,
+    {
         // Read TaggedData from the socket
         let mut tag_buf: [u8; 4] = [0u8; 4];
         if reader.read_exact(&mut tag_buf).await.is_err() {
